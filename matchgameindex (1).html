@@ -1,0 +1,201 @@
+
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Memory Flip</title>
+<style>
+  :root{
+    --bg:#0b1020;--panel:#10162a;--text:#e7ecf7;--muted:#94a3b8;--accent:#60a5fa;--good:#22c55e;--bad:#ef4444;--shadow:0 18px 40px rgba(0,0,0,.35)
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{margin:0;background:radial-gradient(1100px 700px at 70% -10%,#1b223d 0%,var(--bg) 55%);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;display:grid;place-items:center}
+  .wrap{width:min(540px,100vw);height:min(860px,100vh);padding:12px}
+  .card{position:relative;height:100%;border-radius:20px;background:linear-gradient(160deg,rgba(255,255,255,.05),rgba(255,255,255,.02));box-shadow:var(--shadow);overflow:hidden}
+  header{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.06)}
+  .hud{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .stat{padding:6px 10px;border-radius:10px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.08);font-variant-numeric:tabular-nums}
+  .pill{padding:6px 10px;border-radius:999px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.08);color:var(--muted)}
+  button{border:none;border-radius:12px;padding:10px 14px;font-weight:800;cursor:pointer}
+  .btn{background:var(--accent);color:#081423;box-shadow:0 8px 18px rgba(96,165,250,.35)}
+  .btn.secondary{background:rgba(255,255,255,.06);color:var(--text);box-shadow:none}
+
+  main{position:relative;height:calc(100% - 54px)}
+  #board{display:grid;gap:10px;padding:12px;height:100%}
+  /* grid sizes set via JS by difficulty */
+
+  /* card */
+  .tile{position:relative;perspective:900px}
+  .inner{position:absolute;inset:0;border-radius:14px;transform-style:preserve-3d;transition:transform .35s ease}
+  .inner.flipped{transform:rotateY(180deg)}
+  .face{position:absolute;inset:0;display:grid;place-items:center;border-radius:14px;backface-visibility:hidden}
+  .front{background:linear-gradient(180deg,rgba(255,255,255,.06),rgba(255,255,255,.03));border:1px solid rgba(255,255,255,.08)}
+  .back{transform:rotateY(180deg);background:linear-gradient(160deg,rgba(96,165,250,.25),rgba(96,165,250,.1));border:1px solid rgba(96,165,250,.35);font-size:42px}
+
+  /* overlays */
+  .overlay{position:absolute;inset:0;display:grid;place-items:center;background:linear-gradient(180deg,rgba(16,22,42,.92),rgba(16,22,42,.78));}
+  .panel{width:min(92%,480px);text-align:center;background:linear-gradient(160deg,rgba(255,255,255,.05),rgba(255,255,255,.03));border:1px solid rgba(255,255,255,.08);border-radius:20px;padding:20px;box-shadow:var(--shadow)}
+  .panel h1{margin:8px 0 4px}
+  .panel p{color:var(--muted)}
+  .options{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:8px}
+
+  .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="card">
+    <header>
+      <div>🧠 Memory Flip</div>
+      <div class="hud">
+        <div class="stat">Moves: <strong id="moves">0</strong></div>
+        <div class="stat">Time: <strong id="time">0.0</strong>s</div>
+        <div class="stat">Matches: <strong id="match">0</strong></div>
+        <div class="pill">Best (fewest moves): <span id="best">–</span></div>
+      </div>
+    </header>
+
+    <main>
+      <div id="board" aria-live="polite"></div>
+
+      <div class="overlay" id="start">
+        <div class="panel">
+          <h1>Flip & Match</h1>
+          <p>Find all matching pairs. Fewer moves = better. Timer starts on your first flip.</p>
+          <div class="options">
+            <button class="btn" data-diff="easy">Easy 4×4</button>
+            <button class="btn secondary" data-diff="med">Medium 6×4</button>
+            <button class="btn secondary" data-diff="hard">Hard 6×6</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="overlay" id="over" style="display:none">
+        <div class="panel">
+          <h1>🎉 All Matched!</h1>
+          <p>Moves: <strong id="finalMoves">0</strong> · Time: <strong id="finalTime">0.0s</strong></p>
+          <div class="options">
+            <button class="btn" id="again">Play Again</button>
+            <button class="btn secondary" id="share">Share</button>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<script>
+(() => {
+  const board = document.getElementById('board');
+  const movesEl = document.getElementById('moves');
+  const timeEl = document.getElementById('time');
+  const matchEl = document.getElementById('match');
+  const bestEl = document.getElementById('best');
+  const startOv = document.getElementById('start');
+  const overOv = document.getElementById('over');
+  const finalMovesEl = document.getElementById('finalMoves');
+  const finalTimeEl = document.getElementById('finalTime');
+  const againBtn = document.getElementById('again');
+  const shareBtn = document.getElementById('share');
+
+  const emojiSet = ['🍎','🍌','🍇','🍉','🍓','🍒','🥝','🍑','🍍','🥥','🥑','🌽','🥕','🍆','🍪','🍩','🍕','🍔','🍟','🌮','🍗','🍰','🧁','🍫','⭐','💎','🔥','🌙','☀️','🌈','⚽','🏀','🎲','🎵','🎧'];
+
+  let first=null, second=null, lock=false, running=false;
+  let diff='easy', cols=4, rows=4; // default
+  let moves=0, matches=0, needed=0, startTime=0, timerId=null;
+
+  function bestKey(){ return `mf_best_${diff}`; }
+  function loadBest(){ const b = localStorage.getItem(bestKey()); bestEl.textContent = b? b : '–'; }
+
+  function rand(a,b){ return Math.random()*(b-a)+a; }
+  function shuffle(arr){ for(let i=arr.length-1;i>0;i--){ const j = Math.floor(rand(0,i+1)); [arr[i],arr[j]]=[arr[j],arr[i]]; } return arr; }
+
+  function setDiff(d){
+    diff=d;
+    if(d==='easy'){ cols=4; rows=4; }
+    else if(d==='med'){ cols=6; rows=4; }
+    else { cols=6; rows=6; }
+    board.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+    board.style.gridTemplateRows = `repeat(${rows}, 1fr)`;
+    loadBest();
+  }
+
+  function newDeck(){
+    const pairs = (cols*rows)/2; needed = pairs; matches=0; matchEl.textContent=0;
+    const pick = shuffle(emojiSet.slice()).slice(0, pairs);
+    const deck = shuffle(pick.concat(pick));
+    board.innerHTML='';
+    deck.forEach((em,idx)=>{
+      const t = document.createElement('div'); t.className='tile'; t.setAttribute('role','button'); t.setAttribute('aria-label','Card'); t.tabIndex=0;
+      const inner = document.createElement('div'); inner.className='inner'; inner.dataset.em = em;
+      inner.innerHTML = `<div class="face front"></div><div class="face back">${em}</div>`;
+      t.appendChild(inner);
+      t.addEventListener('click', ()=>flip(inner));
+      t.addEventListener('keydown', (e)=>{ if(e.key==='Enter' || e.key===' '){ e.preventDefault(); flip(inner); } });
+      board.appendChild(t);
+    });
+  }
+
+  function startGame(){
+    moves=0; movesEl.textContent=0; first=second=null; lock=false; running=false; timeEl.textContent='0.0';
+    clearInterval(timerId); timerId=null; startTime=0;
+    newDeck(); startOv.style.display='none'; overOv.style.display='none';
+  }
+
+  function beginTimer(){ if(running) return; running = true; startTime = performance.now(); timerId = setInterval(()=>{ const t = (performance.now()-startTime)/1000; timeEl.textContent = t.toFixed(1); }, 100); }
+
+  function flip(inner){
+    if(lock || inner.classList.contains('flipped')) return; beginTimer();
+    inner.classList.add('flipped');
+    if(!first){ first = inner; return; }
+    second = inner; lock = true; moves++; movesEl.textContent = moves;
+
+    if(first.dataset.em === second.dataset.em){
+      // match!
+      matches++; matchEl.textContent = matches;
+      blip(800); setTimeout(()=>{ first.style.opacity=second.style.opacity=0.85; }, 120);
+      resetPick();
+      if(matches === needed){ return win(); }
+    } else {
+      blip(220);
+      setTimeout(()=>{ first.classList.remove('flipped'); second.classList.remove('flipped'); resetPick(); }, 650);
+    }
+  }
+
+  function resetPick(){ first=null; second=null; lock=false; }
+
+  function win(){
+    clearInterval(timerId); timerId=null; running=false; const total = Number(timeEl.textContent);
+    finalMovesEl.textContent = moves; finalTimeEl.textContent = total.toFixed(1)+'s';
+    // save best (fewest moves)
+    const key = bestKey(); const prev = Number(localStorage.getItem(key)||Infinity);
+    if(moves < prev){ localStorage.setItem(key, String(moves)); }
+    loadBest(); overOv.style.display='grid';
+  }
+
+  async function share(){
+    const text = `I beat Memory Flip on ${diff.toUpperCase()} in ${moves} moves!`;
+    try{ if(navigator.share){ await navigator.share({ title:'Memory Flip', text, url: location.href }); } else { await navigator.clipboard.writeText(text + ' ' + location.href); alert('Result copied! Paste anywhere.'); } }catch{}
+  }
+
+  // tiny SFX
+  const audio = new (window.AudioContext||window.webkitAudioContext)();
+  function blip(freq=660, len=0.07){ const o=audio.createOscillator(); const g=audio.createGain(); o.type='sine'; o.frequency.value=freq; o.connect(g); g.connect(audio.destination); g.gain.setValueAtTime(.0001,audio.currentTime); g.gain.exponentialRampToValueAtTime(.2,audio.currentTime+.01); g.gain.exponentialRampToValueAtTime(.0001,audio.currentTime+len); o.start(); o.stop(audio.currentTime+len+.01); }
+
+  // wire up
+  startOv.querySelectorAll('button[data-diff]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{ setDiff(btn.dataset.diff); startGame(); });
+  });
+  againBtn.addEventListener('click', startGame);
+  shareBtn.addEventListener('click', share);
+
+  // init
+  setDiff('easy');
+})();
+</script>
+</body>
+</html
+
